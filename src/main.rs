@@ -4,6 +4,7 @@ use std::{
     fmt::{self, write},
     fs::{self, File},
     io::Write,
+    num,
     ops::Sub,
     path::Display,
 };
@@ -14,23 +15,11 @@ use nalgebra::Vector3;
 use rayon::prelude::*;
 
 fn main() {
-    let filenames = vec![
-        "../Copernicus_DSM_10_N55_00_W005_00_DEM.dt2",
-        "../Copernicus_DSM_10_N56_00_W005_00_DEM.dt2",
-        "../Copernicus_DSM_10_N56_00_W006_00_DEM.dt2",
-    ];
+    let filenames = vec!["../Copernicus_DSM_10_N55_00_W005_00_DEM.dt2", "../Copernicus_DSM_10_N56_00_W005_00_DEM.dt2", "../Copernicus_DSM_10_N56_00_W006_00_DEM.dt2"];
 
-    let data = filenames
-        .into_iter()
-        .map(|file| DTEDData::read(file).unwrap())
-        .collect::<Vec<DTEDData>>();
+    let data = filenames.into_iter().map(|file| DTEDData::read(file).unwrap()).collect::<Vec<DTEDData>>();
 
-    data.iter().for_each(|dem_slice| {
-        println!(
-            "extents of {} are {:?} and then {:?}",
-            dem_slice.metadata.filename, dem_slice.max, dem_slice.min
-        )
-    });
+    data.iter().for_each(|dem_slice| println!("extents of {} are {:?} and then {:?}", dem_slice.metadata.filename, dem_slice.max, dem_slice.min));
     let start_lat = 56.7645839;
     let start_lon = -5.0476345;
     /*let day_2 = read_gpx("../Day_2_Drymen_to_Inchcailloch.gpx".to_string());
@@ -42,10 +31,10 @@ fn main() {
     */
     let day_9 = read_gpx("../Day_9_Kinlochleven_to_Glen_Nevis.gpx".to_string());
     //make_image(start_lat, start_lon, 0.2, 0.2, &data, Some(day_9));
-    make_stl(start_lat, start_lon, 0.2, 0.2, &data);
+    make_stl(start_lat, start_lon, 0.2, 0.2, &data, true);
 }
 
-fn make_stl(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDData>) {
+fn make_stl(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDData>, add_base: bool) {
     let lat_low = lat_0 - width / 2.0;
     let long_low = long_0 - height / 2.0;
     let lat_high = lat_0 + width / 2.0;
@@ -62,17 +51,12 @@ fn make_stl(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDDat
     let elev_data: Vec<Vec<f64>> = (0..num_height)
         .into_iter()
         .map(|index_long| {
-            let current_longitude =
-                long_low + (index_long as f64 * step_size) / longitude_length(long_0);
+            let current_longitude = long_low + (index_long as f64 * step_size) / longitude_length(long_0);
             (0..num_width)
                 .into_iter()
                 .map(|index_lat| {
-                    let current_latitude =
-                        lat_low + index_lat as f64 * step_size / latitude_length(current_longitude);
-                    find_elevation(current_latitude, current_longitude, data).expect(&format!(
-                        "lat: {}, lon: {}",
-                        current_latitude, current_longitude
-                    ))
+                    let current_latitude = lat_low + index_lat as f64 * step_size / latitude_length(current_longitude);
+                    find_elevation(current_latitude, current_longitude, data).expect(&format!("lat: {}, lon: {}", current_latitude, current_longitude))
                 })
                 .collect::<Vec<f64>>()
         })
@@ -92,11 +76,7 @@ fn make_stl(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDDat
             let p3 = Vector3::new(step_size * (x as f64), step_size * (y as f64 + 1.0), h3);
 
             let h4 = elev_data[x + 1][y + 1];
-            let p4 = Vector3::new(
-                step_size * (x as f64 + 1.0),
-                step_size * (y as f64 + 1.0),
-                h4,
-            );
+            let p4 = Vector3::new(step_size * (x as f64 + 1.0), step_size * (y as f64 + 1.0), h4);
 
             let t1 = Triangle3D::new(p1, p2, p3);
             let t2 = Triangle3D::new(p4, p2, p3);
@@ -105,11 +85,55 @@ fn make_stl(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDDat
         }
     }
 
+    if add_base {
+        let z_base = -500.0;
+        let num_y = elev_data[0].len() - 1; // not quite number of them but it makes the code better to look at
+        let num_x = elev_data.len() - 1;
+
+        let x_middle = num_x as f64 / 2.0 * step_size;
+        let y_middle = num_y as f64 / 2.0 * step_size;
+        let p_middle = Vector3::new(x_middle, y_middle, z_base);
+
+        for x in 0..num_x {
+            let p1 = Vector3::new(x as f64 * step_size, 0.0, elev_data[x][0]);
+            let p2 = Vector3::new((x + 1) as f64 * step_size, 0.0, elev_data[x + 1][0]);
+            let p3 = Vector3::new(x as f64 * step_size, 0.0, z_base);
+            let p4 = Vector3::new((x + 1) as f64 * step_size, 0.0, z_base);
+            triangles.push(Triangle3D::new(p1, p2, p3));
+            triangles.push(Triangle3D::new(p4, p2, p3));
+            triangles.push(Triangle3D::new(p3, p4, p_middle));
+
+            let p5 = Vector3::new(x as f64 * step_size, num_y as f64 * step_size, elev_data[x][num_y]);
+            let p6 = Vector3::new((x + 1) as f64 * step_size, num_y as f64 * step_size, elev_data[x + 1][num_y]);
+            let p7 = Vector3::new(x as f64 * step_size, num_y as f64 * step_size, z_base);
+            let p8 = Vector3::new((x + 1) as f64 * step_size, num_y as f64 * step_size, z_base);
+            triangles.push(Triangle3D::new(p5, p6, p7));
+            triangles.push(Triangle3D::new(p8, p6, p7));
+            triangles.push(Triangle3D::new(p7, p8, p_middle));
+        }
+        for y in 0..num_y {
+            let p1 = Vector3::new(0.0, y as f64 * step_size, elev_data[0][y]);
+            let p2 = Vector3::new(0.0, (y + 1) as f64 * step_size, elev_data[0][y + 1]);
+            let p3 = Vector3::new(0.0, y as f64 * step_size, z_base);
+            let p4 = Vector3::new(0.0, (y + 1) as f64 * step_size, z_base);
+            triangles.push(Triangle3D::new(p1, p2, p3));
+            triangles.push(Triangle3D::new(p4, p2, p3));
+            triangles.push(Triangle3D::new(p3, p4, p_middle));
+
+            let p5 = Vector3::new(num_x as f64 * step_size, y as f64 * step_size, elev_data[num_x][y]);
+            let p6 = Vector3::new(num_x as f64 * step_size, (y + 1) as f64 * step_size, elev_data[num_x][y + 1]);
+            let p7 = Vector3::new(num_x as f64 * step_size, y as f64 * step_size, z_base);
+            let p8 = Vector3::new(num_x as f64 * step_size, (y + 1) as f64 * step_size, z_base);
+            triangles.push(Triangle3D::new(p5, p6, p7));
+            triangles.push(Triangle3D::new(p8, p6, p7));
+            triangles.push(Triangle3D::new(p7, p8, p_middle));
+        }
+        println!("num_x {}, num_y {}", num_x, num_y);
+    }
     let mut stl_string = String::from("solid name\n");
     for tri in triangles {
         stl_string.push_str(format!("{:?}\n", tri).as_str());
     }
-
     stl_string.push_str("endsolid name");
     let mut file = File::create("./obj.stl").unwrap();
     file.write(stl_string.as_bytes());
@@ -130,10 +154,10 @@ impl Triangle3D {
     fn unit_normal(&self) -> (f64, f64, f64) {
         let i = self.c1 - self.c2;
         let j = self.c3 - self.c2;
-        let mut  normal = i.cross(&j) / (i.cross(&j)).norm();
-	if normal.z < 0.0 {
-		normal *= -1.0;
-	}
+        let mut normal = i.cross(&j) / (i.cross(&j)).norm();
+        if normal.z < 0.0 {
+            normal *= -1.0;
+        }
         return (normal.x, normal.y, normal.z);
     }
 }
@@ -164,14 +188,7 @@ fn stl_vector(vec: &Vector3<f64>) -> String {
 }
 
 /// everything in degrees
-fn make_image(
-    lat_0: f64,
-    long_0: f64,
-    width: f64,
-    height: f64,
-    data: &Vec<DTEDData>,
-    path_data: Option<Vec<(f64, f64)>>,
-) {
+fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDData>, path_data: Option<Vec<(f64, f64)>>) {
     let lat_low = lat_0 - width / 2.0;
     let long_low = long_0 - height / 2.0;
     let lat_high = lat_0 + width / 2.0;
@@ -188,17 +205,12 @@ fn make_image(
     let elev_data: Vec<Vec<f64>> = (0..num_height)
         .into_iter()
         .map(|index_long| {
-            let current_longitude =
-                long_low + (index_long as f64 * step_size) / longitude_length(long_0);
+            let current_longitude = long_low + (index_long as f64 * step_size) / longitude_length(long_0);
             (0..num_width)
                 .into_iter()
                 .map(|index_lat| {
-                    let current_latitude =
-                        lat_low + index_lat as f64 * step_size / latitude_length(current_longitude);
-                    find_elevation(current_latitude, current_longitude, data).expect(&format!(
-                        "lat: {}, lon: {}",
-                        current_latitude, current_longitude
-                    ))
+                    let current_latitude = lat_low + index_lat as f64 * step_size / latitude_length(current_longitude);
+                    find_elevation(current_latitude, current_longitude, data).expect(&format!("lat: {}, lon: {}", current_latitude, current_longitude))
                 })
                 .collect::<Vec<f64>>()
         })
@@ -208,32 +220,26 @@ fn make_image(
     let lowest = elev_data
         .iter()
         .map(|strip| {
-            strip.iter().fold(f64::INFINITY, |a, &b| {
-                match PartialOrd::partial_cmp(&a, &b) {
-                    None => 0.0,
-                    Some(Ordering::Less) => a,
-                    Some(_) => b,
-                }
-            })
-        })
-        .fold(f64::INFINITY, |a, b| {
-            match PartialOrd::partial_cmp(&a, &b) {
+            strip.iter().fold(f64::INFINITY, |a, &b| match PartialOrd::partial_cmp(&a, &b) {
                 None => 0.0,
                 Some(Ordering::Less) => a,
                 Some(_) => b,
-            }
+            })
+        })
+        .fold(f64::INFINITY, |a, b| match PartialOrd::partial_cmp(&a, &b) {
+            None => 0.0,
+            Some(Ordering::Less) => a,
+            Some(_) => b,
         });
 
     let highest = elev_data
         .iter()
         .map(|strip| {
-            strip
-                .iter()
-                .fold(0.0, |a, &b| match PartialOrd::partial_cmp(&a, &b) {
-                    None => 0.0,
-                    Some(Ordering::Less) => b,
-                    Some(_) => a,
-                })
+            strip.iter().fold(0.0, |a, &b| match PartialOrd::partial_cmp(&a, &b) {
+                None => 0.0,
+                Some(Ordering::Less) => b,
+                Some(_) => a,
+            })
         })
         .fold(0.0, |a, b| match PartialOrd::partial_cmp(&a, &b) {
             None => 0.0,
@@ -241,15 +247,7 @@ fn make_image(
             Some(_) => a,
         });
 
-    let normalised_elev_data = elev_data
-        .iter()
-        .map(|strip| {
-            strip
-                .iter()
-                .map(|p| (p - lowest) / (highest - lowest))
-                .collect::<Vec<f64>>()
-        })
-        .collect::<Vec<Vec<f64>>>();
+    let normalised_elev_data = elev_data.iter().map(|strip| strip.iter().map(|p| (p - lowest) / (highest - lowest)).collect::<Vec<f64>>()).collect::<Vec<Vec<f64>>>();
 
     println!("{} {}", lowest, highest);
     let mut image = RgbImage::new(num_height + 1, num_width + 1);
@@ -277,12 +275,7 @@ fn make_image(
             let error = 1e-4;
 
             if let Some(path) = &path_data {
-                if path
-                    .par_iter()
-                    .filter(|p| (p.0 - this_lat).abs() < error && (p.1 - this_long).abs() < error)
-                    .count()
-                    > 0
-                {
+                if path.par_iter().filter(|p| (p.0 - this_lat).abs() < error && (p.1 - this_long).abs() < error).count() > 0 {
                     image.put_pixel(adjusted_x, adjusted_y, Rgb([255, 255, 255]));
                 }
             }
@@ -307,11 +300,7 @@ fn latitude_length(long_deg: f64) -> f64 {
 }
 
 fn find_elevation(lat: f64, lon: f64, data: &Vec<DTEDData>) -> Option<f64> {
-    let matching = data
-        .iter()
-        .map(|dem_slice| dem_slice.get_elevation(lat, lon))
-        .filter(|e| e.is_some())
-        .collect::<Vec<Option<f64>>>();
+    let matching = data.iter().map(|dem_slice| dem_slice.get_elevation(lat, lon)).filter(|e| e.is_some()).collect::<Vec<Option<f64>>>();
     return match matching.len() {
         0 => None,
         1 => matching[0],
