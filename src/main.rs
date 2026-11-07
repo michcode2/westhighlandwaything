@@ -1,12 +1,9 @@
 use std::{
     cmp::Ordering,
     f64::consts::PI,
-    fmt::{self, write},
+    fmt,
     fs::{self, File},
     io::Write,
-    num,
-    ops::Sub,
-    path::Display,
 };
 
 use dted2::DTEDData;
@@ -22,16 +19,161 @@ fn main() {
     data.iter().for_each(|dem_slice| println!("extents of {} are {:?} and then {:?}", dem_slice.metadata.filename, dem_slice.max, dem_slice.min));
     let start_lat = 56.7645839;
     let start_lon = -5.0476345;
-    /*let day_2 = read_gpx("../Day_2_Drymen_to_Inchcailloch.gpx".to_string());
+    let day_2 = read_gpx("../Day_2_Drymen_to_Inchcailloch.gpx".to_string());
     let day_3 = read_gpx("../Day_3_Inchcailloch_to_Rowardennan.gpx".to_string());
     let day_4 = read_gpx("../Day_4_Rowardennan_to_Beinglas.gpx".to_string());
     let day_5 = read_gpx("../Day_5_Beinglas_to_Tyndrum.gpx".to_string());
     let day_6 = read_gpx("../Day_6_Tyndrum_to_Inveroran.gpx".to_string());
-    let _all_days = [day_2, day_3, day_4, day_5, day_6].concat();
-    */
-    let day_9 = read_gpx("../Day_9_Kinlochleven_to_Glen_Nevis.gpx".to_string());
-    //make_image(start_lat, start_lon, 0.2, 0.2, &data, Some(day_9));
-    make_stl(start_lat, start_lon, 0.2, 0.2, &data, true);
+
+    //let day_9 = read_gpx("../Day_9_Kinlochleven_to_Glen_Nevis.gpx".to_string());
+    let all_days = [day_2, day_3, day_4, day_5, day_6].concat();
+
+    let mut reduced_path = vec![];
+    let reduce_factor = 1000;
+    for i in 0..all_days.len() {
+        if i % reduce_factor == 0 {
+            reduced_path.push(all_days[i]);
+        }
+    }
+    make_image(start_lat, start_lon, 0.2, 0.2, &data, Some(reduced_path));
+    //make_stl(start_lat, start_lon, 0.2, 0.2, &data, true);
+    //select_and_make_plates(start_lat, start_lon, 1e4, &data, &_all_days);
+    //make_plate(15000.0, 15000.0, start_lat, start_lon, &data);
+}
+
+///lat_0 and long_0 are the bottom right of the first plates
+fn select_and_make_plates(lat_0: f64, long_0: f64, side_len_m: f64, data: &Vec<DTEDData>, path_data: &Vec<(f64, f64)>) {
+    let calculate_bounds = |lat_start: f64, long_start: f64, side_len_m: f64| {
+        let lat_high = lat_start + side_len_m / latitude_length(long_start);
+        let long_high = long_start + side_len_m / longitude_length(long_start);
+        return (lat_start, long_start, lat_high, long_high);
+    };
+    let check_in_bounds = |point: (f64, f64), bounds: (f64, f64, f64, f64)| {
+        let (lat_low, long_low, lat_high, long_high) = bounds;
+        let (lat, long) = point;
+        return lat_low < lat && lat < lat_high && long_low < long && long < long_high;
+    };
+    let mut reduced_path = vec![];
+    let reduce_factor = 1000;
+    for i in 0..path_data.len() {
+        if i % reduce_factor == 0 {
+            reduced_path.push(path_data[i]);
+        }
+    }
+    let mut plate_locations = vec![(lat_0, long_0)];
+    let mut plate_bounds = vec![calculate_bounds(lat_0, long_0, side_len_m)];
+
+    for (lat, long) in reduced_path {
+        let mut ok = false;
+        for plate_index in 0..plate_locations.len() {
+            if check_in_bounds((lat, long), plate_bounds[plate_index]) {
+                ok = true;
+                break;
+            }
+        }
+        if ok {
+            continue;
+        }
+
+        //logic to add next plate
+        for vertical in -1..1 {
+            for horizontal in -1..1 {}
+        }
+    }
+}
+
+fn make_plate(width_m: f64, height_m: f64, lat_low: f64, long_low: f64, data: &Vec<DTEDData>) {
+    let lat_high = lat_low + width_m / latitude_length(long_low);
+    let long_high = long_low + height_m / longitude_length(long_low);
+    let step_size = 30.0;
+    let num_height = (height_m / step_size) as usize;
+    let num_width = (width_m / step_size) as usize;
+    let elev_data: Vec<Vec<f64>> = (0..num_height)
+        .into_iter()
+        .map(|index_long| {
+            let current_longitude = long_low + (index_long as f64 * step_size) / longitude_length(long_low);
+            (0..num_width)
+                .into_iter()
+                .map(|index_lat| {
+                    let current_latitude = lat_low + index_lat as f64 * step_size / latitude_length(current_longitude);
+                    find_elevation(current_latitude, current_longitude, data).expect(&format!("lat: {}, lon: {}", current_latitude, current_longitude))
+                })
+                .collect::<Vec<f64>>()
+        })
+        .collect::<Vec<Vec<f64>>>();
+    let mut triangles: Vec<Triangle3D> = vec![];
+
+    for x in 0..elev_data.len() - 1 {
+        for y in 0..elev_data[0].len() - 1 {
+            let h1 = elev_data[x][y];
+            let p1 = Vector3::new(x as f64 * step_size, y as f64 * step_size, h1);
+
+            let h2 = elev_data[x + 1][y];
+            let p2 = Vector3::new((x as f64 + 1.0) * step_size, y as f64 * step_size, h2);
+
+            let h3 = elev_data[x][y + 1];
+            let p3 = Vector3::new(step_size * (x as f64), step_size * (y as f64 + 1.0), h3);
+
+            let h4 = elev_data[x + 1][y + 1];
+            let p4 = Vector3::new(step_size * (x as f64 + 1.0), step_size * (y as f64 + 1.0), h4);
+
+            let t1 = Triangle3D::new(p1, p2, p3);
+            let t2 = Triangle3D::new(p4, p2, p3);
+            triangles.push(t1);
+            triangles.push(t2);
+        }
+    }
+
+    let z_base = -500.0;
+    let num_y = elev_data[0].len() - 1; // not quite number of them but it makes the code better to look at
+    let num_x = elev_data.len() - 1;
+
+    let x_middle = num_x as f64 / 2.0 * step_size;
+    let y_middle = num_y as f64 / 2.0 * step_size;
+    let p_middle = Vector3::new(x_middle, y_middle, z_base);
+
+    for x in 0..num_x {
+        let p1 = Vector3::new(x as f64 * step_size, 0.0, elev_data[x][0]);
+        let p2 = Vector3::new((x + 1) as f64 * step_size, 0.0, elev_data[x + 1][0]);
+        let p3 = Vector3::new(x as f64 * step_size, 0.0, z_base);
+        let p4 = Vector3::new((x + 1) as f64 * step_size, 0.0, z_base);
+        triangles.push(Triangle3D::new(p1, p2, p3));
+        triangles.push(Triangle3D::new(p4, p2, p3));
+        triangles.push(Triangle3D::new(p3, p4, p_middle));
+
+        let p5 = Vector3::new(x as f64 * step_size, num_y as f64 * step_size, elev_data[x][num_y]);
+        let p6 = Vector3::new((x + 1) as f64 * step_size, num_y as f64 * step_size, elev_data[x + 1][num_y]);
+        let p7 = Vector3::new(x as f64 * step_size, num_y as f64 * step_size, z_base);
+        let p8 = Vector3::new((x + 1) as f64 * step_size, num_y as f64 * step_size, z_base);
+        triangles.push(Triangle3D::new(p5, p6, p7));
+        triangles.push(Triangle3D::new(p8, p6, p7));
+        triangles.push(Triangle3D::new(p7, p8, p_middle));
+    }
+    for y in 0..num_y {
+        let p1 = Vector3::new(0.0, y as f64 * step_size, elev_data[0][y]);
+        let p2 = Vector3::new(0.0, (y + 1) as f64 * step_size, elev_data[0][y + 1]);
+        let p3 = Vector3::new(0.0, y as f64 * step_size, z_base);
+        let p4 = Vector3::new(0.0, (y + 1) as f64 * step_size, z_base);
+        triangles.push(Triangle3D::new(p1, p2, p3));
+        triangles.push(Triangle3D::new(p4, p2, p3));
+        triangles.push(Triangle3D::new(p3, p4, p_middle));
+
+        let p5 = Vector3::new(num_x as f64 * step_size, y as f64 * step_size, elev_data[num_x][y]);
+        let p6 = Vector3::new(num_x as f64 * step_size, (y + 1) as f64 * step_size, elev_data[num_x][y + 1]);
+        let p7 = Vector3::new(num_x as f64 * step_size, y as f64 * step_size, z_base);
+        let p8 = Vector3::new(num_x as f64 * step_size, (y + 1) as f64 * step_size, z_base);
+        triangles.push(Triangle3D::new(p5, p6, p7));
+        triangles.push(Triangle3D::new(p8, p6, p7));
+        triangles.push(Triangle3D::new(p7, p8, p_middle));
+    }
+    println!("num_x {}, num_y {}", num_x, num_y);
+    let mut stl_bytes = vec![65_u8; 80];
+    stl_bytes.append(&mut (triangles.len() as u32).to_le_bytes().to_vec());
+    for tri in triangles {
+        stl_bytes.append(&mut tri.bytes_representation());
+    }
+    let mut file = File::create(format!("{},{}.stl", lat_low, lat_high)).unwrap();
+    file.write_all(&stl_bytes[..]).unwrap();
 }
 
 fn make_stl(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDData>, add_base: bool) {
@@ -44,7 +186,6 @@ fn make_stl(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDDat
     let num_width = (width * latitude_length(long_0) / step_size) as u32; // try the dimensional analysis, it works
     let num_height = (height * longitude_length(long_0) / step_size) as u32; // try the dimensional analysis, it works
 
-    println!("image will be {}x{}", num_width, num_height);
     println!("bottom left {},{}", lat_low, long_low);
     println!("top right {},{}", lat_high, long_high);
 
@@ -130,13 +271,13 @@ fn make_stl(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDDat
         }
         println!("num_x {}, num_y {}", num_x, num_y);
     }
-    let mut stl_string = String::from("solid name\n");
+    let mut stl_bytes = vec![65_u8; 80];
+    stl_bytes.append(&mut (triangles.len() as u32).to_le_bytes().to_vec());
     for tri in triangles {
-        stl_string.push_str(format!("{:?}\n", tri).as_str());
+        stl_bytes.append(&mut tri.bytes_representation());
     }
-    stl_string.push_str("endsolid name");
     let mut file = File::create("./obj.stl").unwrap();
-    file.write(stl_string.as_bytes());
+    file.write_all(&stl_bytes[..]).unwrap();
 }
 
 #[derive(Clone, Copy)]
@@ -159,6 +300,36 @@ impl Triangle3D {
             normal *= -1.0;
         }
         return (normal.x, normal.y, normal.z);
+    }
+
+    fn bytes_representation(&self) -> Vec<u8> {
+        let mut value = vec![];
+        let i = self.c1 - self.c2;
+        let j = self.c3 - self.c2;
+        let mut normal = i.cross(&j) / (i.cross(&j)).norm();
+        if normal.z < 0.0 {
+            normal *= -1.0;
+        }
+        value.append(&mut (normal.x as f32).to_le_bytes().to_vec());
+        value.append(&mut (normal.y as f32).to_le_bytes().to_vec());
+        value.append(&mut (normal.z as f32).to_le_bytes().to_vec());
+
+        value.append(&mut (self.c1.x as f32).to_le_bytes().to_vec());
+        value.append(&mut (self.c1.y as f32).to_le_bytes().to_vec());
+        value.append(&mut (self.c1.z as f32).to_le_bytes().to_vec());
+
+        value.append(&mut (self.c2.x as f32).to_le_bytes().to_vec());
+        value.append(&mut (self.c2.y as f32).to_le_bytes().to_vec());
+        value.append(&mut (self.c2.z as f32).to_le_bytes().to_vec());
+
+        value.append(&mut (self.c3.x as f32).to_le_bytes().to_vec());
+        value.append(&mut (self.c3.y as f32).to_le_bytes().to_vec());
+        value.append(&mut (self.c3.z as f32).to_le_bytes().to_vec());
+
+        value.push(0);
+        value.push(0);
+
+        return value;
     }
 }
 
@@ -194,7 +365,7 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
     let lat_high = lat_0 + width / 2.0;
     let long_high = long_0 + height / 2.0;
 
-    let step_size = 10.0; // meters
+    let step_size = 30.0; // meters
     let num_width = (width * latitude_length(long_0) / step_size) as u32; // try the dimensional analysis, it works
     let num_height = (height * longitude_length(long_0) / step_size) as u32; // try the dimensional analysis, it works
 
@@ -248,6 +419,14 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
         });
 
     let normalised_elev_data = elev_data.iter().map(|strip| strip.iter().map(|p| (p - lowest) / (highest - lowest)).collect::<Vec<f64>>()).collect::<Vec<Vec<f64>>>();
+    let colourize = |height: f64| {
+        return match height {
+            500.0..10000.0 => (100, 100, 100),
+            10.0..500.0 => (0, 255, (-height * 0.3) as usize),
+            0.0..10.0 => (0, 0, 255),
+            _ => (0, 0, 0),
+        };
+    };
 
     println!("{} {}", lowest, highest);
     let mut image = RgbImage::new(num_height + 1, num_width + 1);
@@ -271,7 +450,8 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
             let adjusted_x = x;
             let adjusted_y = num_width - y;
 
-            image.put_pixel(adjusted_x, adjusted_y, Rgb([grey, grey, grey]));
+            let (r, g, b) = colourize(elev_data[x as usize][y as usize]);
+            image.put_pixel(adjusted_x, adjusted_y, Rgb([r, g, b]));
             let error = 1e-4;
 
             if let Some(path) = &path_data {
