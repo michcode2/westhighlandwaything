@@ -19,26 +19,50 @@ fn main() {
     data.iter().for_each(|dem_slice| println!("extents of {} are {:?} and then {:?}", dem_slice.metadata.filename, dem_slice.max, dem_slice.min));
     let start_lat = 56.7645839;
     let start_lon = -5.0476345;
-    let day_2 = read_gpx("../Day_2_Drymen_to_Inchcailloch.gpx".to_string());
-    let day_3 = read_gpx("../Day_3_Inchcailloch_to_Rowardennan.gpx".to_string());
-    let day_4 = read_gpx("../Day_4_Rowardennan_to_Beinglas.gpx".to_string());
-    let day_5 = read_gpx("../Day_5_Beinglas_to_Tyndrum.gpx".to_string());
-    let day_6 = read_gpx("../Day_6_Tyndrum_to_Inveroran.gpx".to_string());
+    let names = [
+        "../Day_2_Drymen_to_Inchcailloch.gpx",
+        "../Day_3_Inchcailloch_to_Rowardennan.gpx",
+        "../Day_4_Rowardennan_to_Beinglas.gpx",
+        "../Day_5_Beinglas_to_Tyndrum.gpx",
+        "../Day_6_Tyndrum_to_Inveroran.gpx",
+        "../Day_7_Inveroran_to_Kingshouse.gpx",
+        "../Day_8_Kingshouse_to_Kinlochleven.gpx",
+        "../Day_9_Kinlochleven_to_Glen_Nevis.gpx",
+        "../Day_10_Glen_Nevis_to_Fort_William.gpx",
+    ];
+    let iter_days = names.iter().map(|f| read_gpx(f.to_string())).flatten().collect::<Vec<(f64, f64)>>();
+    /*
+        let day_2 = read_gpx("../Day_2_Drymen_to_Inchcailloch.gpx".to_string());
+        let day_3 = read_gpx("../Day_3_Inchcailloch_to_Rowardennan.gpx".to_string());
+        let day_4 = read_gpx("../Day_4_Rowardennan_to_Beinglas.gpx".to_string());
+        let day_5 = read_gpx("../Day_5_Beinglas_to_Tyndrum.gpx".to_string());
+        let day_6 = read_gpx("../Day_6_Tyndrum_to_Inveroran.gpx".to_string());
 
-    //let day_9 = read_gpx("../Day_9_Kinlochleven_to_Glen_Nevis.gpx".to_string());
-    let all_days = [day_2, day_3, day_4, day_5, day_6].concat();
-
+        let day_9 = read_gpx("../Day_9_Kinlochleven_to_Glen_Nevis.gpx".to_string());
+        let all_days = [day_2, day_3, day_4, day_5, day_6, day_9].concat();
+    */
     let mut reduced_path = vec![];
     let reduce_factor = 1000;
-    for i in 0..all_days.len() {
+    for i in 0..iter_days.len() {
         if i % reduce_factor == 0 {
-            reduced_path.push(all_days[i]);
+            reduced_path.push(iter_days[i]);
         }
     }
-    make_image(start_lat, start_lon, 0.2, 0.2, &data, Some(reduced_path));
+
+    println!("lat len{}", latitude_length(89.0));
+    println!("{}", longitude_length(89.0));
+    make_image(start_lat, start_lon, 0.2, 0.2, &data, Some(&reduced_path), None);
+    make_image_meters(start_lat, start_lon, 15000.0, &data, Some(&reduced_path));
     //make_stl(start_lat, start_lon, 0.2, 0.2, &data, true);
     //select_and_make_plates(start_lat, start_lon, 1e4, &data, &_all_days);
     //make_plate(15000.0, 15000.0, start_lat, start_lon, &data);
+}
+fn make_image_meters(start_lat: f64, start_long: f64, side_len_m: f64, data: &Vec<DTEDData>, path: Option<&Vec<(f64, f64)>>) {
+    let height = side_len_m / latitude_length(start_lat);
+    let width = side_len_m / longitude_length(start_lat);
+    let lat_0 = start_lat + height / 2.0;
+    let long_0 = start_long + width / 2.0;
+    make_image(lat_0, long_0, width, height, &data, path, Some("new.png"));
 }
 
 ///lat_0 and long_0 are the bottom right of the first plates
@@ -359,15 +383,15 @@ fn stl_vector(vec: &Vector3<f64>) -> String {
 }
 
 /// everything in degrees
-fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDData>, path_data: Option<Vec<(f64, f64)>>) {
-    let lat_low = lat_0 - width / 2.0;
-    let long_low = long_0 - height / 2.0;
-    let lat_high = lat_0 + width / 2.0;
-    let long_high = long_0 + height / 2.0;
+fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDData>, path_data: Option<&Vec<(f64, f64)>>, filename: Option<&str>) {
+    let lat_low = lat_0 - height / 2.0;
+    let long_low = long_0 - width / 2.0;
+    let lat_high = lat_0 + height / 2.0;
+    let long_high = long_0 + width / 2.0;
 
     let step_size = 30.0; // meters
-    let num_width = (width * latitude_length(long_0) / step_size) as u32; // try the dimensional analysis, it works
-    let num_height = (height * longitude_length(long_0) / step_size) as u32; // try the dimensional analysis, it works
+    let num_width = (width * longitude_length(lat_0) / step_size) as u32; // try the dimensional analysis, it works
+    let num_height = (height * latitude_length(lat_0) / step_size) as u32; // try the dimensional analysis, it works
 
     println!("image will be {}x{}", num_width, num_height);
     println!("bottom left {},{}", lat_low, long_low);
@@ -376,11 +400,11 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
     let elev_data: Vec<Vec<f64>> = (0..num_height)
         .into_iter()
         .map(|index_long| {
-            let current_longitude = long_low + (index_long as f64 * step_size) / longitude_length(long_0);
+            let current_longitude = long_low + (index_long as f64 * step_size) / longitude_length(lat_0);
             (0..num_width)
                 .into_iter()
                 .map(|index_lat| {
-                    let current_latitude = lat_low + index_lat as f64 * step_size / latitude_length(current_longitude);
+                    let current_latitude = lat_low + index_lat as f64 * step_size / latitude_length(lat_0);
                     find_elevation(current_latitude, current_longitude, data).expect(&format!("lat: {}, lon: {}", current_latitude, current_longitude))
                 })
                 .collect::<Vec<f64>>()
@@ -421,8 +445,13 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
     let normalised_elev_data = elev_data.iter().map(|strip| strip.iter().map(|p| (p - lowest) / (highest - lowest)).collect::<Vec<f64>>()).collect::<Vec<Vec<f64>>>();
     let colourize = |height: f64| {
         return match height {
-            500.0..10000.0 => (100, 100, 100),
-            10.0..500.0 => (0, 255, (-height * 0.3) as usize),
+            500.0..10000.0 => {
+                let r = 0.25 * height - 500.0 / 4.0;
+                let g = 0.0005 * (height - 960.0).powi(2) + 150.0;
+                let b = 0.2 * height - 50.0;
+                (r as u8, g as u8, b as u8)
+            }
+            10.0..500.0 => (0, 255, (-height * 0.3 + 200.0) as u8),
             0.0..10.0 => (0, 0, 255),
             _ => (0, 0, 0),
         };
@@ -460,23 +489,27 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
                 }
             }
         }
-        println!("{:?}", 100.0 * x as f64 / num_height as f64)
+        //println!("{:?}", 100.0 * x as f64 / num_height as f64)
     }
-    image.save("./elevation.png");
+    if let Some(name) = filename {
+        image.save(name).unwrap();
+    } else {
+        image.save("./elevation.png").unwrap();
+    }
 }
 
-/// length of one degree of longitude at a given longitude (meters)
-fn longitude_length(long_deg: f64) -> f64 {
-    let long_rad = long_deg * PI / 180.0;
-    return 111132.954 - 559.822 * (2.0 * long_rad).cos() * (4.0 * long_rad).cos();
-}
-
-/// length of one degree of latitude at a given longitude (meters)
-fn latitude_length(long_deg: f64) -> f64 {
-    let long_rad = long_deg * PI / 180.0;
-    let numerator = PI * 6378137.0 * long_rad.cos();
-    let denominator = 180.0 * (1.0 - -0.00669437999014 * long_rad.sin().sin()).powf(0.5);
+/// length of one degree of longitude (east-west) at a given longitude (meters)
+fn longitude_length(lat_deg: f64) -> f64 {
+    let lat_rad = lat_deg * PI / 180.0;
+    let numerator = PI * 6378137.0 * lat_rad.cos();
+    let denominator = 180.0 * (1.0 - -0.00669437999014 * lat_rad.sin().sin()).powf(0.5);
     return numerator / denominator;
+}
+
+/// length of one degree of latitude (north/south) at a given longitude (meters)
+fn latitude_length(lat_deg: f64) -> f64 {
+    let lat_rad = lat_deg * PI / 180.0;
+    return 111132.954 - 559.822 * (2.0 * lat_rad).cos() * (4.0 * lat_rad).cos();
 }
 
 fn find_elevation(lat: f64, lon: f64, data: &Vec<DTEDData>) -> Option<f64> {
