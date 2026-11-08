@@ -11,6 +11,8 @@ use image::{Rgb, RgbImage};
 use nalgebra::Vector3;
 use rayon::prelude::*;
 
+const TILE_SIZE: f64 = 10000.0;
+
 fn main() {
     let filenames = vec!["../Copernicus_DSM_10_N55_00_W005_00_DEM.dt2", "../Copernicus_DSM_10_N56_00_W005_00_DEM.dt2", "../Copernicus_DSM_10_N56_00_W006_00_DEM.dt2"];
 
@@ -19,6 +21,56 @@ fn main() {
     data.iter().for_each(|dem_slice| println!("extents of {} are {:?} and then {:?}", dem_slice.metadata.filename, dem_slice.max, dem_slice.min));
     let start_lat = 56.7645839;
     let start_lon = -5.0476345;
+
+    let kinlochleven_lat = 56.7146178;
+    let kinlochleven_long = -4.9687199;
+
+    let balmaha_lat = 56.0643991;
+    let balmaha_long = -4.5816642;
+    let milngavnie_lat = 55.9084616;
+    let milngavnie_long = -4.37;
+
+    let move_north = |loc: (f64, f64)| {
+        let (lat, long) = loc;
+        let height = TILE_SIZE / latitude_length(start_lat);
+        let width = TILE_SIZE / longitude_length(start_lat);
+        (lat + height, long)
+    };
+    let move_east = |loc: (f64, f64)| {
+        let (lat, long) = loc;
+        let height = TILE_SIZE / latitude_length(start_lat);
+        let width = TILE_SIZE / longitude_length(start_lat);
+        (lat, long + width)
+    };
+    let move_west = |loc: (f64, f64)| {
+        let (lat, long) = loc;
+        let height = TILE_SIZE / latitude_length(start_lat);
+        let width = TILE_SIZE / longitude_length(start_lat);
+        (lat, long - width)
+    };
+
+    let mut squares = vec![(milngavnie_lat, milngavnie_long)]; //0
+    squares.push(move_north(squares[0])); //  1
+    squares.push(move_west(squares[1])); //   2
+    squares.push(move_north(squares[2])); //  3
+    squares.push(move_west(squares[3])); //   4 - rowardennan
+    squares.push(move_north(squares[4])); //  5
+    squares.push(move_north(squares[5])); //  6
+    squares.push(move_west(squares[6])); //   7
+    squares.push(move_north(squares[6])); //  8
+    squares.push(move_north(squares[7])); //  9
+    squares.push(move_north(squares[9])); // 10
+    squares.push(move_north(squares[10])); //11
+    squares.push(move_north(squares[11])); //12
+    squares.push(move_west(squares[12])); // 13 - kinlochleven
+    squares.push(move_north(squares[13])); //14 - ben nevis
+    squares.push(move_west(squares[14])); // 15
+    squares.push(move_north(squares[15])); //16 - fort william
+    squares.push(move_west(squares[2])); // 17 - inchcailloch
+    squares.push(move_north(squares[14])); //18 - ben nevis north
+    squares.push(move_west(squares[5])); // 19 - northwest loch lomond
+    println!("{:?}", squares);
+
     let names = [
         "../Day_2_Drymen_to_Inchcailloch.gpx",
         "../Day_3_Inchcailloch_to_Rowardennan.gpx",
@@ -30,7 +82,24 @@ fn main() {
         "../Day_9_Kinlochleven_to_Glen_Nevis.gpx",
         "../Day_10_Glen_Nevis_to_Fort_William.gpx",
     ];
-    let iter_days = names.iter().map(|f| read_gpx(f.to_string())).flatten().collect::<Vec<(f64, f64)>>();
+    let mut iter_days = names.iter().map(|f| read_gpx(f.to_string())).flatten().collect::<Vec<(f64, f64)>>();
+    let mut waypoints = vec![];
+    waypoints.push((55.941457, -4.3180973)); //  day 1
+    waypoints.push((55.9587088, -4.3316057)); // day 1
+    waypoints.push((55.9636016, -4.3426032)); // day 1
+    waypoints.push((56.0129791, -4.3688067)); // day 1
+    waypoints.push((56.0338561, -4.3903345)); // day 1
+    waypoints.push((56.0338911, -4.3902921)); // day 1
+    waypoints.push((56.0518637, -4.4103411)); // day 1
+    waypoints.push((56.0656151, -4.4391594)); // ardlui
+    waypoints.push((56.3924312, -4.6200532)); // crainlarich
+    waypoints.push((56.438124, -4.7124773)); // green welly stop
+    waypoints.push((56.5160846, -4.7653192)); // bridge of orchy
+    waypoints.push((56.532745, -4.8080007)); // inveroran hotel
+    waypoints.push((56.6512179, -4.8407526)); // kingshouse
+    waypoints.push((56.714449, -4.9657868)); // kinlochleven
+    waypoints.push((56.7984163, -5.01039)); // ben nevis
+
     /*
         let day_2 = read_gpx("../Day_2_Drymen_to_Inchcailloch.gpx".to_string());
         let day_3 = read_gpx("../Day_3_Inchcailloch_to_Rowardennan.gpx".to_string());
@@ -42,27 +111,32 @@ fn main() {
         let all_days = [day_2, day_3, day_4, day_5, day_6, day_9].concat();
     */
     let mut reduced_path = vec![];
-    let reduce_factor = 1000;
+    let reduce_factor = 200;
     for i in 0..iter_days.len() {
         if i % reduce_factor == 0 {
             reduced_path.push(iter_days[i]);
         }
     }
-
-    println!("lat len{}", latitude_length(89.0));
-    println!("{}", longitude_length(89.0));
-    make_image(start_lat, start_lon, 0.2, 0.2, &data, Some(&reduced_path), None);
-    make_image_meters(start_lat, start_lon, 15000.0, &data, Some(&reduced_path));
+    //make_image(start_lat, start_lon, 0.2, 0.2, &data, Some(&reduced_path), None);
+    //  make_image_meters(start_lat, start_lon, TILE_SIZE, &data, Some(&iter_days), Some("nevis.png"));
+    //make_image_meters(kinlochleven_lat, kinlochleven_long, TILE_SIZE, &data, Some(&iter_days), Some("kinlochleven.png"));
+    //make_image_meters(balmaha_lat, balmaha_long, TILE_SIZE, &data, Some(&reduced_path), Some("balmaha.png"));
+    //make_image_meters(milngavnie_lat, milngavnie_long, TILE_SIZE, &data, Some(&reduced_path), Some("milngavnie.png"));
     //make_stl(start_lat, start_lon, 0.2, 0.2, &data, true);
     //select_and_make_plates(start_lat, start_lon, 1e4, &data, &_all_days);
-    //make_plate(15000.0, 15000.0, start_lat, start_lon, &data);
+    //make_plate(TILE_SIZE, TILE_SIZE, start_lat, start_lon, &data);
+
+    (0..squares.len()).into_par_iter().for_each(|i| {
+        make_image_meters(squares[i].0, squares[i].1, TILE_SIZE, &data, Some(&reduced_path), Some(format!("{}.png", i).as_str()), Some(&waypoints));
+        make_plate(TILE_SIZE, TILE_SIZE, squares[i].0, squares[i].1, &data, Some(format!("{}.stl", i).as_str()));
+    });
 }
-fn make_image_meters(start_lat: f64, start_long: f64, side_len_m: f64, data: &Vec<DTEDData>, path: Option<&Vec<(f64, f64)>>) {
+fn make_image_meters(start_lat: f64, start_long: f64, side_len_m: f64, data: &Vec<DTEDData>, path: Option<&Vec<(f64, f64)>>, filename: Option<&str>, waypoints: Option<&Vec<(f64, f64)>>) {
     let height = side_len_m / latitude_length(start_lat);
     let width = side_len_m / longitude_length(start_lat);
     let lat_0 = start_lat + height / 2.0;
     let long_0 = start_long + width / 2.0;
-    make_image(lat_0, long_0, width, height, &data, path, Some("new.png"));
+    make_image(lat_0, long_0, width, height, &data, path, filename, waypoints);
 }
 
 ///lat_0 and long_0 are the bottom right of the first plates
@@ -106,7 +180,7 @@ fn select_and_make_plates(lat_0: f64, long_0: f64, side_len_m: f64, data: &Vec<D
     }
 }
 
-fn make_plate(width_m: f64, height_m: f64, lat_low: f64, long_low: f64, data: &Vec<DTEDData>) {
+fn make_plate(width_m: f64, height_m: f64, lat_low: f64, long_low: f64, data: &Vec<DTEDData>, filename: Option<&str>) {
     let lat_high = lat_low + width_m / latitude_length(long_low);
     let long_high = long_low + height_m / longitude_length(long_low);
     let step_size = 30.0;
@@ -196,7 +270,12 @@ fn make_plate(width_m: f64, height_m: f64, lat_low: f64, long_low: f64, data: &V
     for tri in triangles {
         stl_bytes.append(&mut tri.bytes_representation());
     }
-    let mut file = File::create(format!("{},{}.stl", lat_low, lat_high)).unwrap();
+    let mut file;
+    if let Some(name) = filename {
+        file = File::create(format!("{}", name)).unwrap();
+    } else {
+        file = File::create(format!("{},{}.stl", lat_low, lat_high)).unwrap();
+    }
     file.write_all(&stl_bytes[..]).unwrap();
 }
 
@@ -383,7 +462,7 @@ fn stl_vector(vec: &Vector3<f64>) -> String {
 }
 
 /// everything in degrees
-fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDData>, path_data: Option<&Vec<(f64, f64)>>, filename: Option<&str>) {
+fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDData>, path_data: Option<&Vec<(f64, f64)>>, filename: Option<&str>, waypoints: Option<&Vec<(f64, f64)>>) {
     let lat_low = lat_0 - height / 2.0;
     let long_low = long_0 - width / 2.0;
     let lat_high = lat_0 + height / 2.0;
@@ -393,9 +472,16 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
     let num_width = (width * longitude_length(lat_0) / step_size) as u32; // try the dimensional analysis, it works
     let num_height = (height * latitude_length(lat_0) / step_size) as u32; // try the dimensional analysis, it works
 
-    println!("image will be {}x{}", num_width, num_height);
-    println!("bottom left {},{}", lat_low, long_low);
-    println!("top right {},{}", lat_high, long_high);
+    println!(
+        "{} will be {}x{}\nbottom left {}, {}\ntop right {}, {}",
+        filename.unwrap_or("image"),
+        num_width,
+        num_height,
+        lat_low,
+        long_low,
+        lat_high,
+        long_high
+    );
 
     let elev_data: Vec<Vec<f64>> = (0..num_height)
         .into_iter()
@@ -411,38 +497,37 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
         })
         .collect::<Vec<Vec<f64>>>();
 
-    println!("image is {}x{}", elev_data.len(), elev_data[0].len());
-    let lowest = elev_data
-        .iter()
-        .map(|strip| {
-            strip.iter().fold(f64::INFINITY, |a, &b| match PartialOrd::partial_cmp(&a, &b) {
+    /*let lowest = elev_data
+            .iter()
+            .map(|strip| {
+                strip.iter().fold(f64::INFINITY, |a, &b| match PartialOrd::partial_cmp(&a, &b) {
+                    None => 0.0,
+                    Some(Ordering::Less) => a,
+                    Some(_) => b,
+                })
+            })
+            .fold(f64::INFINITY, |a, b| match PartialOrd::partial_cmp(&a, &b) {
                 None => 0.0,
                 Some(Ordering::Less) => a,
                 Some(_) => b,
-            })
-        })
-        .fold(f64::INFINITY, |a, b| match PartialOrd::partial_cmp(&a, &b) {
-            None => 0.0,
-            Some(Ordering::Less) => a,
-            Some(_) => b,
-        });
+            });
 
-    let highest = elev_data
-        .iter()
-        .map(|strip| {
-            strip.iter().fold(0.0, |a, &b| match PartialOrd::partial_cmp(&a, &b) {
+        let highest = elev_data
+            .iter()
+            .map(|strip| {
+                strip.iter().fold(0.0, |a, &b| match PartialOrd::partial_cmp(&a, &b) {
+                    None => 0.0,
+                    Some(Ordering::Less) => b,
+                    Some(_) => a,
+                })
+            })
+            .fold(0.0, |a, b| match PartialOrd::partial_cmp(&a, &b) {
                 None => 0.0,
                 Some(Ordering::Less) => b,
                 Some(_) => a,
-            })
-        })
-        .fold(0.0, |a, b| match PartialOrd::partial_cmp(&a, &b) {
-            None => 0.0,
-            Some(Ordering::Less) => b,
-            Some(_) => a,
-        });
-
-    let normalised_elev_data = elev_data.iter().map(|strip| strip.iter().map(|p| (p - lowest) / (highest - lowest)).collect::<Vec<f64>>()).collect::<Vec<Vec<f64>>>();
+            });
+    */
+    //let normalised_elev_data = elev_data.iter().map(|strip| strip.iter().map(|p| (p - lowest) / (highest - lowest)).collect::<Vec<f64>>()).collect::<Vec<Vec<f64>>>();
     let colourize = |height: f64| {
         return match height {
             500.0..10000.0 => {
@@ -452,17 +537,16 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
                 (r as u8, g as u8, b as u8)
             }
             10.0..500.0 => (0, 255, (-height * 0.3 + 200.0) as u8),
-            0.0..10.0 => (0, 0, 255),
+            -1000.0..10.0 => (0, 0, 255),
             _ => (0, 0, 0),
         };
     };
 
-    println!("{} {}", lowest, highest);
     let mut image = RgbImage::new(num_height + 1, num_width + 1);
 
     for x in 0..num_height - 1 {
         for y in 0..num_width - 1 {
-            let tallness = normalised_elev_data[x as usize][y as usize];
+            /*  let tallness = normalised_elev_data[x as usize][y as usize];
             let mut r = (255.0 * (1.0 + (2.0 * PI * tallness).cos()) / 2.0) as u8;
             let mut g = (255.0 * (1.0 + (2.0 + 2.0 * PI * tallness).cos()) / 2.0) as u8;
             let mut b = (255.0 * (1.0 + (4.0 + 2.0 * PI * tallness).cos()) / 2.0) as u8;
@@ -471,21 +555,30 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
                 r = 0;
                 g = 0;
                 b = 0;
-            }
+            }*/
 
-            let this_long = long_low + x as f64 * step_size / longitude_length(long_0);
-            let this_lat = lat_low + y as f64 * step_size / latitude_length(long_0);
+            let this_long = long_low + x as f64 * step_size / longitude_length(lat_0);
+            let this_lat = lat_low + y as f64 * step_size / latitude_length(lat_0);
 
             let adjusted_x = x;
             let adjusted_y = num_width - y;
 
             let (r, g, b) = colourize(elev_data[x as usize][y as usize]);
             image.put_pixel(adjusted_x, adjusted_y, Rgb([r, g, b]));
-            let error = 1e-4;
+            let error = 1e-3;
+            let error_waypoint = 1e-2;
 
             if let Some(path) = &path_data {
                 if path.par_iter().filter(|p| (p.0 - this_lat).abs() < error && (p.1 - this_long).abs() < error).count() > 0 {
-                    image.put_pixel(adjusted_x, adjusted_y, Rgb([255, 255, 255]));
+                    // leads to squashing because lat and long are quite different. could make it a number of meters to return to square, not worth the computation for now
+                    image.put_pixel(adjusted_x, adjusted_y, Rgb([255, 0, 0]));
+                }
+            }
+
+            if let Some(points) = &waypoints {
+                if points.par_iter().filter(|p| (p.0 - this_lat).abs() < error_waypoint && (p.1 - this_long).abs() < error_waypoint).count() > 0 {
+                    // leads to squashing because lat and long are quite different. could make it a number of meters to return to square, not worth the computation for now
+                    image.put_pixel(adjusted_x, adjusted_y, Rgb([255, 0, 255]));
                 }
             }
         }
