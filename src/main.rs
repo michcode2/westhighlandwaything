@@ -69,8 +69,10 @@ fn main() {
     squares.push(move_west(squares[2])); // 17 - inchcailloch
     squares.push(move_north(squares[14])); //18 - ben nevis north
     squares.push(move_west(squares[5])); // 19 - northwest loch lomond
+    squares.push(move_west(squares[11])); // 21 - cool mountain by kingshouse
     println!("{:?}", squares);
 
+    /* -------------------------- for images(boooring) ------------------------------
     let names = [
         "../Day_2_Drymen_to_Inchcailloch.gpx",
         "../Day_3_Inchcailloch_to_Rowardennan.gpx",
@@ -99,17 +101,6 @@ fn main() {
     waypoints.push((56.6512179, -4.8407526)); // kingshouse
     waypoints.push((56.714449, -4.9657868)); // kinlochleven
     waypoints.push((56.7984163, -5.01039)); // ben nevis
-
-    /*
-        let day_2 = read_gpx("../Day_2_Drymen_to_Inchcailloch.gpx".to_string());
-        let day_3 = read_gpx("../Day_3_Inchcailloch_to_Rowardennan.gpx".to_string());
-        let day_4 = read_gpx("../Day_4_Rowardennan_to_Beinglas.gpx".to_string());
-        let day_5 = read_gpx("../Day_5_Beinglas_to_Tyndrum.gpx".to_string());
-        let day_6 = read_gpx("../Day_6_Tyndrum_to_Inveroran.gpx".to_string());
-
-        let day_9 = read_gpx("../Day_9_Kinlochleven_to_Glen_Nevis.gpx".to_string());
-        let all_days = [day_2, day_3, day_4, day_5, day_6, day_9].concat();
-    */
     let mut reduced_path = vec![];
     let reduce_factor = 200;
     for i in 0..iter_days.len() {
@@ -117,6 +108,8 @@ fn main() {
             reduced_path.push(iter_days[i]);
         }
     }
+
+    */
     //make_image(start_lat, start_lon, 0.2, 0.2, &data, Some(&reduced_path), None);
     //  make_image_meters(start_lat, start_lon, TILE_SIZE, &data, Some(&iter_days), Some("nevis.png"));
     //make_image_meters(kinlochleven_lat, kinlochleven_long, TILE_SIZE, &data, Some(&iter_days), Some("kinlochleven.png"));
@@ -127,7 +120,7 @@ fn main() {
     //make_plate(TILE_SIZE, TILE_SIZE, start_lat, start_lon, &data);
 
     (0..squares.len()).into_par_iter().for_each(|i| {
-        make_image_meters(squares[i].0, squares[i].1, TILE_SIZE, &data, Some(&reduced_path), Some(format!("{}.png", i).as_str()), Some(&waypoints));
+        //make_image_meters(squares[i].0, squares[i].1, TILE_SIZE, &data, Some(&reduced_path), Some(format!("{}.png", i).as_str()), Some(&waypoints));
         make_plate(TILE_SIZE, TILE_SIZE, squares[i].0, squares[i].1, &data, Some(format!("{}.stl", i).as_str()));
     });
 }
@@ -180,26 +173,32 @@ fn select_and_make_plates(lat_0: f64, long_0: f64, side_len_m: f64, data: &Vec<D
     }
 }
 
+fn transpose<T>(v: Vec<Vec<T>>) -> Vec<Vec<T>> {
+    assert!(!v.is_empty());
+    let len = v[0].len();
+    let mut iters: Vec<_> = v.into_iter().map(|n| n.into_iter()).collect();
+    (0..len).map(|_| iters.iter_mut().map(|n| n.next().unwrap()).collect::<Vec<T>>()).collect()
+}
+
 fn make_plate(width_m: f64, height_m: f64, lat_low: f64, long_low: f64, data: &Vec<DTEDData>, filename: Option<&str>) {
-    let lat_high = lat_low + width_m / latitude_length(long_low);
-    let long_high = long_low + height_m / longitude_length(long_low);
     let step_size = 30.0;
     let num_height = (height_m / step_size) as usize;
     let num_width = (width_m / step_size) as usize;
-    let elev_data: Vec<Vec<f64>> = (0..num_height)
+    let elev_data_t: Vec<Vec<f64>> = (0..num_height)
         .into_iter()
-        .map(|index_long| {
-            let current_longitude = long_low + (index_long as f64 * step_size) / longitude_length(long_low);
+        .map(|index_lat| {
+            let current_latitude = lat_low + (index_lat as f64 * step_size / latitude_length(lat_low));
             (0..num_width)
                 .into_iter()
-                .map(|index_lat| {
-                    let current_latitude = lat_low + index_lat as f64 * step_size / latitude_length(current_longitude);
+                .map(|index_long| {
+                    let current_longitude = long_low + (index_long as f64 * step_size / longitude_length(current_latitude));
                     find_elevation(current_latitude, current_longitude, data).expect(&format!("lat: {}, lon: {}", current_latitude, current_longitude))
                 })
                 .collect::<Vec<f64>>()
         })
         .collect::<Vec<Vec<f64>>>();
     let mut triangles: Vec<Triangle3D> = vec![];
+    let elev_data = transpose(elev_data_t);
 
     for x in 0..elev_data.len() - 1 {
         for y in 0..elev_data[0].len() - 1 {
@@ -274,7 +273,7 @@ fn make_plate(width_m: f64, height_m: f64, lat_low: f64, long_low: f64, data: &V
     if let Some(name) = filename {
         file = File::create(format!("{}", name)).unwrap();
     } else {
-        file = File::create(format!("{},{}.stl", lat_low, lat_high)).unwrap();
+        file = File::create(format!("{},{}.stl", lat_low, long_low)).unwrap();
     }
     file.write_all(&stl_bytes[..]).unwrap();
 }
@@ -566,7 +565,7 @@ fn make_image(lat_0: f64, long_0: f64, width: f64, height: f64, data: &Vec<DTEDD
             let (r, g, b) = colourize(elev_data[x as usize][y as usize]);
             image.put_pixel(adjusted_x, adjusted_y, Rgb([r, g, b]));
             let error = 1e-3;
-            let error_waypoint = 1e-2;
+            let error_waypoint = 5e-3;
 
             if let Some(path) = &path_data {
                 if path.par_iter().filter(|p| (p.0 - this_lat).abs() < error && (p.1 - this_long).abs() < error).count() > 0 {
